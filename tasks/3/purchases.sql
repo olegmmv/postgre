@@ -1,7 +1,7 @@
 SELECT city.name AS city,
     region.name AS region,
     income.ndoc AS doc,
-    goods_groups.name as g_group,
+    goods_groupssss.name as g_group,
     goods.name as goods,
     (goods.weight * goods.length * goods.height) as volume
 FROM region

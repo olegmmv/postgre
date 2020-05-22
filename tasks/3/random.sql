@@ -2,7 +2,7 @@ SELECT *
 FROM (SELECT city.name AS city,
         region.name AS region,
         income.ndoc AS ndoc,
-        goods_groups.name AS g_group,
+        goods_groupssss.name AS g_group,
         goods.name AS goods,
         (goods.weight * goods.length * goods.height) AS volume
     FROM region
