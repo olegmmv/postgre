@@ -21,6 +21,7 @@ def moving_average(dateFrom: str, dateTo: str, window_size: int) -> pd.DataFrame
         WHERE
             recept.ddate >= %(mindate)s AND recept.ddate <= %(maxdate)s
         GROUP BY city.region, recept.ddate
+        ORDER BY city.region
     '''
 
     df = pd.read_sql(
@@ -33,20 +34,15 @@ def moving_average(dateFrom: str, dateTo: str, window_size: int) -> pd.DataFrame
     N = df.shape[0]
     if (N < window_size):
         raise ValueError(f'Invalid windows size > {N}')
-
-    dfs = df.set_index(['reg'])
-    dfs.drop('dd', axis=1, inplace=True)
-    dfs = dfs.groupby(level=['reg']).rolling(
-        window=window_size,  min_periods=1
-    ).mean()
-    dfs.reset_index(level=[2, 1], inplace=True)
+    
+    dfs = df.set_index('reg')
+    dfs['s'] = dfs['s'].shift(1)
+    dfs = dfs.groupby(level='reg').rolling(window=window_size).mean()
+    dfs.reset_index(level=[1], inplace=True)
     dfs.reset_index(drop=True, inplace=True)
-    dft = df.sort_values(['reg'],)
-    dft.reset_index(drop=True, inplace=True)
     names = ['region', 'date', 'sum']
-    dft.columns = names
-    dft['prediction'] = dfs['s']
-    dft = dft.sort_values('date')
-
+    df.columns = names
+    df['prediction'] = dfs['s']
     df.to_sql('prediction', engine, if_exists='replace')
+
     return df
