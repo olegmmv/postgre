@@ -1,64 +1,85 @@
-CREATE OR REPLACE FUNCTION predict(d1 date, d2 date, window_size int) 
-RETURNS TABLE (region int, ddate date, ssum int, prediction double precision) AS $$
-DECLARE
-    curs CURSOR FOR SELECT city.region, recept.ddate, SUM(goods.weight * recgoods.volume)
-        FROM city
-            JOIN client ON client.city = city.id
-            JOIN recept ON recept.client = client.id
-            JOIN recgoods ON recgoods.subid = recept.id
-            JOIN goods ON goods.id = recgoods.goods
-        WHERE recept.ddate BETWEEN '2019-01-02' AND '2019-12-31'
-        GROUP BY city.region, recept.ddate ;
-    N int := (select count(1)
-        FROM city
-            JOIN client ON client.city = city.id
-            JOIN recept ON recept.client = client.id
-            JOIN recgoods ON recgoods.subid = recept.id
-            JOIN goods ON goods.id = recgoods.goods
-        WHERE recept.ddate BETWEEN '2019-01-02' AND '2019-12-31'
-        GROUP BY city.region, recept.ddate);
-    pred double precision;
-    cnt int;
-    rg int;
-    dd date;
-    ss int;
+DROP FUNCTION IF EXISTS moving_average(d1 date, d2 date);
 
-
-BEGIN
-    CREATE TEMP TABLE t (
+CREATE OR REPLACE FUNCTION moving_average(d1 date, d2 date)
+    RETURNS table (
         region int,
-        ddate date,
-        ssum int,
+        date date,
+        sum int,
+        prediction double precision
+    )
+AS
+$$
+DECLARE
+    cursor CURSOR FOR SELECT city.region AS reg,
+                             recept.ddate AS dd,
+                             SUM(goods.weight * recgoods.volume) AS s
+                      FROM city
+                               JOIN client ON client.city = city.id
+                               JOIN recept ON recept.client = client.id
+                               JOIN recgoods ON recgoods.subid = recept.id
+                               JOIN goods ON goods.id = recgoods.goods
+                      WHERE recept.ddate >= d1
+                        AND recept.ddate <= d2
+                      GROUP BY city.region, recept.ddate
+                      ORDER BY city.region, recept.ddate
+    ;
+    cnt int := 0;
+    temp_cnt int := 0;
+    pred double precision;
+    prev_region int;
+--
+    region int;
+    date date;
+    sum int;
+BEGIN
+    CREATE TEMP TABLE tmp
+    (
+        region int,
+        date date,
+        sum int
+    );
+    CREATE TEMP TABLE to_return
+    (
+        region int,
+        date date,
+        sum int,
         prediction double precision
     );
-
-    IF N < window_size THEN
-        INSERT INTO t VALUES (Null, Null, Null, Null);
-        RETURN query SELECT * FROM t;
-        DROP TABLE t;
-    END IF;
-
-    OPEN curs;
-    cnt = 0;
-    
+    OPEN cursor;
     LOOP
-        FETCH curs INTO rg, dd, ss;
-        EXIT WHEN NOT FOUND;
-        IF cnt < window_size THEN
-            INSERT INTO t VALUES (rg, dd, ss, Null);
+        FETCH cursor INTO region, date, sum;
+        EXIT WHEN NOT found;
+
+        IF region != prev_region THEN
+            temp_cnt := 1;
+            TRUNCATE tmp;
+            INSERT INTO tmp VALUES (region, date, sum);
+            INSERT INTO to_return (region, date, sum, prediction)
+            VALUES (region, date, sum, sum);
         ELSE
-            pred = (SELECT sum(t.ssum)
-                    FROM (SELECT ssum, row_number() OVER () AS row_n FROM t) AS t
-                    WHERE row_n >= cnt - window_size AND row_n <= cnt) / window_size;
-            INSERT INTO t VALUES (rg, dd, ss, prediction);
+            IF temp_cnt < 2 THEN
+                temp_cnt = temp_cnt + 1;
+                INSERT INTO to_return (region, date, sum, prediction)
+                VALUES (region, date, sum, sum);
+                INSERT INTO tmp VALUES (region, date, sum);
+            ELSE
+                temp_cnt = temp_cnt + 1;
+                INSERT INTO to_return (region, date, sum, prediction)
+                VALUES (region, date, sum, (SELECT avg(tmp.sum) FROM tmp));
+                DELETE FROM tmp WHERE tmp.date IN (SELECT tmp.date FROM tmp ORDER BY tmp.date ASC LIMIT 1);
+                INSERT INTO tmp VALUES (region, date, sum);
+            END IF;
         END IF;
-        cnt = cnt + 1;
+        prev_region = region;
+        cnt := cnt + 1;
     END LOOP;
 
-    CLOSE curs;
-    RETURN query SELECT * FROM t;
-    DROP TABLE t;
-END;
-$$ LANGUAGE PLPGSQL;
+    CLOSE cursor;
+    RETURN QUERY SELECT * FROM to_return;
+    DROP TABLE to_return;
+    DROP TABLE tmp;
+END
+$$ LANGUAGE plpgsql;
 
-SELECT * FROM predict('2019-01-02', '2019-12-31', 2);
+SELECT *
+FROM moving_average('2020-02-01', '2020-12-31');

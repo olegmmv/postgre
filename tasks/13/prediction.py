@@ -21,7 +21,7 @@ def moving_average(dateFrom: str, dateTo: str, window_size: int) -> pd.DataFrame
         WHERE
             recept.ddate >= %(mindate)s AND recept.ddate <= %(maxdate)s
         GROUP BY city.region, recept.ddate
-        ORDER BY city.region
+        ORDER BY city.region, recept.ddate
     '''
 
     df = pd.read_sql(
